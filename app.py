@@ -11,33 +11,35 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 st.set_page_config(page_title="Tarifas SAESA (Automático)", layout="wide")
 st.title("📊 Dashboard Tarifas SAESA con Scraping")
 
-# Inputs: mes, año, comuna, tarifa (listas)
+# Inputs: mes, año, comuna, tarifa
 mes = st.selectbox("Mes", ["enero","febrero","marzo","abril","mayo","junio",
                             "julio","agosto","septiembre","octubre","noviembre","diciembre"])
 anio = st.number_input("Año", min_value=2020, max_value=datetime.now().year, value=datetime.now().year)
-comunas = ["Osorno","Puerto Montt","Valdivia","Ancud","Castro","Quellón"]
-tarifas = ["BT1","BT2","BT3","BT4","AT","MT"]
+
+comunas = ["Osorno","Puerto Montt","Valdivia","Ancud","Castro","Quellón",
+           "Frutillar","La Unión","Río Bueno","Chonchi","Dalcahue","Purranque","Llanquihue","Calbuco"]
 comuna = st.selectbox("Comuna", comunas)
+
+tarifas = ["BT1","BT2","BT3","BT4","AT","MT"]
 tipo_tarifa = st.selectbox("Tarifa", tarifas)
 
-# Función para obtener la URL del PDF desde la página de Tarifas Vigentes
 def obtener_enlace_pliego():
     url = "https://www.gruposaesa.cl/saesa/tarifas-vigentes"
     res = requests.get(url, verify=False)
     if res.status_code != 200:
         return None
     soup = BeautifulSoup(res.text, "html.parser")
-    # Buscamos el enlace que contenga "Tarifas de Suministro Regulado"
-    for a in soup.find_all("a", string=lambda t: t and "Regulado" in t and "Suministro" in t):
+    for a in soup.find_all("a", href=True):
         href = a.get("href")
-        if href and href.endswith(".pdf"):
+        txt = (a.text or "").lower()
+        if ".pdf" in href.lower() and "regulado" in txt:
             return href
     return None
 
 def descargar_pdf(url):
     res = requests.get(url, verify=False)
-    ctype = res.headers.get("Content-Type","")
-    if res.status_code == 200 and "pdf" in ctype:
+    ctype = res.headers.get("Content-Type", "")
+    if res.status_code == 200 and "pdf" in ctype.lower():
         fname = "pliego.pdf"
         with open(fname, "wb") as f:
             f.write(res.content)
@@ -57,20 +59,20 @@ def extraer_cargos(pdf_path):
     return data
 
 if st.button("Ejecutar Scraping y Descargar PDF"):
-    st.info("Buscando enlace hacia PDF...")
+    st.info("🔍 Buscando enlace del pliego tarifario...")
     link = obtener_enlace_pliego()
     if not link:
-        st.error("No se encontró pliego tarifario regulado en el sitio.")
+        st.error("No se encontró el pliego tarifario regulado en el sitio.")
     else:
         st.write("✅ Enlace detectado:", link)
         fname = descargar_pdf(link)
         if not fname:
-            st.error("Falló descarga o archivo no es PDF.")
+            st.error("❌ Falló la descarga o el archivo no es un PDF válido.")
         else:
-            st.success("📥 PDF descargado OK")
+            st.success("📥 PDF descargado correctamente")
             cargos = extraer_cargos(fname)
             os.remove(fname)
             if cargos:
                 st.table(pd.DataFrame(cargos))
             else:
-                st.warning("No se encontraron cargos para los criterios ingresados.")
+                st.warning("⚠️ No se encontraron cargos para los criterios seleccionados.")

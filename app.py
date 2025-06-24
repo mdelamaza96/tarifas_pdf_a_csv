@@ -42,7 +42,8 @@ def descargar_pdf(mes: str, anio: int) -> str:
     url = f"https://www.saesa.cl/media/1dldnwnn/pliego-tarifario-{mes_lower}-{anio}.pdf"
     local_path = f"pliego_{mes_lower}_{anio}.pdf"
     response = requests.get(url, verify=False)
-    if response.status_code == 200:
+    
+    if response.status_code == 200 and response.headers['Content-Type'] == 'application/pdf':
         with open(local_path, 'wb') as f:
             f.write(response.content)
         return local_path

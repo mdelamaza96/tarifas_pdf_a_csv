@@ -1,53 +1,49 @@
 import streamlit as st
-import pdfplumber
 import pandas as pd
 from io import BytesIO
-from datetime import datetime
 
-st.set_page_config(page_title="Tarifas SAESA por Tipo de Tarifa", layout="wide")
-st.title("📊 Tarifas SAESA (por tipo de tarifa)")
+st.set_page_config(page_title="Tarifas SAESA por Comuna y Tipo de Tarifa", layout="wide")
+st.title("📊 Tarifas SAESA (por comuna y tipo de tarifa)")
 
-# Inputs
-tarifas = ["BT1", "BT2", "BT3", "BT4", "BT5", "BT6", "TRBT", "TRAT", "TRBT2", "TRAT2", "TRBT3", "TRAT3"]
-tipo_tarifa = st.selectbox("Selecciona el tipo de tarifa", tarifas)
-uploaded_pdf = st.file_uploader("📎 Cargar archivo PDF del pliego tarifario", type="pdf")
+# Subida de archivo Excel
+uploaded_excel = st.file_uploader("📎 Cargar archivo Excel con las tarifas", type=["xlsx"])
 
-# Comunas extraídas del encabezado del pliego (ajustar si es necesario)
-comunas_aplicables = [
-    "Ancud", "Calbuco", "Castro", "Chonchi", "Cochamó", "Corral", "Curaco de Vélez",
-    "Dalcahue", "Frutillar", "Futaleufú", "Futrono", "Hualaihué", "Lago Ranco", "Lanco",
-    "La Unión", "Llanquihue", "Los Lagos", "Los Muermos", "Maullín", "Mariquina",
-    "Osorno", "Paillaco", "Palena", "Panguipulli", "Puerto Montt", "Puqueldón", "Purranque",
-    "Queilén", "Quemchi", "Quellón", "Río Bueno", "Río Negro", "San Juan de la Costa", "San Pablo",
-    "Valdivia"
-]
+if uploaded_excel:
+    try:
+        df = pd.read_excel(uploaded_excel)
+        # Normalización de nombres de columna para evitar errores
+        df.columns = [col.strip().lower() for col in df.columns]
 
-def extraer_por_tarifa(pdf_file, tarifa):
-    resultados = []
-    with pdfplumber.open(pdf_file) as pdf:
-        for page in pdf.pages:
-            text = page.extract_text()
-            if text and tarifa.upper() in text.upper():
-                for line in text.split("\n"):
-                    if any(palabra in line for palabra in ["Cargo", "$", "%", "kWh"]):
-                        resultados.append({"Detalle": line.strip()})
-    return pd.DataFrame(resultados)
+        # Verifica que existan las columnas requeridas
+        if "comuna" in df.columns and "tipo_tarifa" in df.columns:
+            comunas = sorted(df["comuna"].dropna().unique())
+            tarifas = sorted(df["tipo_tarifa"].dropna().unique())
 
-if uploaded_pdf and st.button("📤 Buscar cargos por tarifa"):
-    st.info(f"🔍 Buscando cargos para tarifa {tipo_tarifa}...")
-    df = extraer_por_tarifa(uploaded_pdf, tipo_tarifa)
-    if not df.empty:
-        st.success(f"✅ Se encontraron {len(df)} filas para tarifa {tipo_tarifa}.")
-        st.dataframe(df)
+            comuna = st.selectbox("Selecciona la comuna", comunas)
+            tarifa = st.selectbox("Selecciona el tipo de tarifa", tarifas)
 
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name="Tarifa")
-        output.seek(0)
-        st.download_button("📥 Descargar Excel", data=output, file_name=f"tarifa_{tipo_tarifa}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            # Filtra según selección
+            filtrado = df[(df["comuna"] == comuna) & (df["tipo_tarifa"] == tarifa)]
 
-        st.markdown("---")
-        st.markdown("ℹ️ **Comunas a las que aplica esta tarifa según el pliego:**")
-        st.write(", ".join(comunas_aplicables))
-    else:
-        st.warning("⚠️ No se encontraron coincidencias con esa tarifa.")
+            if not filtrado.empty:
+                st.success(f"✅ Se encontraron {len(filtrado)} filas para {comuna} y tarifa {tarifa}.")
+                st.dataframe(filtrado)
+
+                output = BytesIO()
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    filtrado.to_excel(writer, index=False, sheet_name="Filtrado")
+                output.seek(0)
+                st.download_button(
+                    "📥 Descargar Excel filtrado",
+                    data=output,
+                    file_name=f"tarifa_{comuna}_{tarifa}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+            else:
+                st.warning("⚠️ No se encontraron coincidencias para esa comuna y tarifa.")
+        else:
+            st.error("El archivo debe contener las columnas 'comuna' y 'tipo_tarifa'.")
+    except Exception as e:
+        st.error(f"Error al leer el archivo: {e}")
+else:
+    st.info("Por favor, sube un archivo Excel con las columnas 'comuna' y 'tipo_tarifa'.")

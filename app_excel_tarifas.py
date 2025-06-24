@@ -7,15 +7,16 @@ st.title("📊 Consulta de Cargos por Comuna y Tarifa (SAESA)")
 
 # Cargar archivo Excel local
 @st.cache_data
-def cargar_datos():
-    df_raw = pd.read_excel("datos_tarifas.xlsx", sheet_name="SAESA0625", header=None)
-    header_row = df_raw.iloc[1]  # fila con nombres reales de columnas
-    df_clean = df_raw.drop([0, 1]).reset_index(drop=True)
-    df_clean.columns = header_row
-    df_clean = df_clean.rename(columns={df_clean.columns[0]: "Index", df_clean.columns[1]: "Tarifa", df_clean.columns[2]: "Cargo"})
-    return df_clean
+df_raw = pd.read_excel("datos_tarifas.xlsx", sheet_name="SAESA0625", header=None)
 
-df = cargar_datos()
+# Buscar la fila que contiene la palabra "TARIFA"
+header_index = df_raw[df_raw.apply(lambda row: row.astype(str).str.contains("TARIFA", case=False).any(), axis=1)].index[0]
+
+# Definir encabezados a partir de esa fila
+headers = df_raw.iloc[header_index]
+df_clean = df_raw[(header_index + 1):].reset_index(drop=True)
+df_clean.columns = headers
+df_clean = df_clean.rename(columns={headers[1]: "Tarifa", headers[2]: "Cargo"})
 
 # Obtener comunas disponibles desde columnas (desde la 4° en adelante)
 comunas = list(df.columns[3:])

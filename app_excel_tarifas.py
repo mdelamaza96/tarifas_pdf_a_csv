@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 from io import BytesIO
@@ -10,15 +9,16 @@ st.title("📊 Consulta de Cargos por Comuna y Tarifa (SAESA)")
 @st.cache_data
 def cargar_datos():
     df_raw = pd.read_excel("datos_tarifas.xlsx", sheet_name="SAESA0625", header=None)
-    df_raw.columns = df_raw.iloc[1]
-    df_raw = df_raw.drop([0, 1]).reset_index(drop=True)
-    df_raw = df_raw.rename(columns={df_raw.columns[0]: "Index", df_raw.columns[1]: "Tarifa", df_raw.columns[2]: "Cargo"})
-    return df_raw
+    header_row = df_raw.iloc[1]  # fila con nombres reales de columnas
+    df_clean = df_raw.drop([0, 1]).reset_index(drop=True)
+    df_clean.columns = header_row
+    df_clean = df_clean.rename(columns={df_clean.columns[0]: "Index", df_clean.columns[1]: "Tarifa", df_clean.columns[2]: "Cargo"})
+    return df_clean
 
 df = cargar_datos()
 
 # Obtener comunas disponibles desde columnas (desde la 4° en adelante)
-comunas = list(df.columns[4:])
+comunas = list(df.columns[3:])
 tarifas = df["Tarifa"].dropna().unique().tolist()
 
 # Entradas del usuario

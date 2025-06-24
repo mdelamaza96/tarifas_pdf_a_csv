@@ -1,86 +1,76 @@
-# Requisitos previos:
-# pip install streamlit PyPDF2 requests pandas
-
 import streamlit as st
-import os
 import requests
+from bs4 import BeautifulSoup
+import os
+import PyPDF2
 import pandas as pd
 from datetime import datetime
-import PyPDF2
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-st.set_page_config(page_title="Tarifas SAESA", layout="wide")
-st.title("📊 Dashboard Tarifas SAESA")
+st.set_page_config(page_title="Tarifas SAESA (Automático)", layout="wide")
+st.title("📊 Dashboard Tarifas SAESA con Scraping")
 
-# === Inputs del usuario ===
-col1, col2, col3, col4 = st.columns(4)
+# Inputs: mes, año, comuna, tarifa (listas)
+mes = st.selectbox("Mes", ["enero","febrero","marzo","abril","mayo","junio",
+                            "julio","agosto","septiembre","octubre","noviembre","diciembre"])
+anio = st.number_input("Año", min_value=2020, max_value=datetime.now().year, value=datetime.now().year)
+comunas = ["Osorno","Puerto Montt","Valdivia","Ancud","Castro","Quellón"]
+tarifas = ["BT1","BT2","BT3","BT4","AT","MT"]
+comuna = st.selectbox("Comuna", comunas)
+tipo_tarifa = st.selectbox("Tarifa", tarifas)
 
-with col1:
-    mes = st.selectbox("Selecciona el mes", options=[
-        "enero", "febrero", "marzo", "abril", "mayo", "junio",
-        "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"])
-
-with col2:
-    anio = st.number_input("Ingresa el año", min_value=2020, max_value=datetime.now().year, value=datetime.now().year)
-
-comunas_disponibles = [
-    "Osorno", "Puerto Montt", "Valdivia", "Ancud", "Castro", "Quellón",
-    "Frutillar", "La Unión", "Río Bueno", "Chonchi", "Dalcahue", "Purranque"
-]
-tarifas_disponibles = ["BT1", "BT2", "BT3", "BT4", "AT", "MT"]
-
-with col3:
-    comuna = st.selectbox("Selecciona tu comuna", options=comunas_disponibles)
-
-with col4:
-    tipo_tarifa = st.selectbox("Tipo de tarifa", options=tarifas_disponibles)
-
-# Funciones auxiliares
-def descargar_pdf(mes: str, anio: int) -> str:
-    mes_lower = mes.lower()
-    url = f"https://www.saesa.cl/media/1dldnwnn/pliego-tarifario-{mes_lower}-{anio}.pdf"
-    local_path = f"pliego_{mes_lower}_{anio}.pdf"
-    response = requests.get(url, verify=False)
-    
-    if response.status_code == 200 and response.headers['Content-Type'] == 'application/pdf':
-        with open(local_path, 'wb') as f:
-            f.write(response.content)
-        return local_path
-    else:
+# Función para obtener la URL del PDF desde la página de Tarifas Vigentes
+def obtener_enlace_pliego():
+    url = "https://www.gruposaesa.cl/saesa/tarifas-vigentes"
+    res = requests.get(url, verify=False)
+    if res.status_code != 200:
         return None
+    soup = BeautifulSoup(res.text, "html.parser")
+    # Buscamos el enlace que contenga "Tarifas de Suministro Regulado"
+    for a in soup.find_all("a", string=lambda t: t and "Regulado" in t and "Suministro" in t):
+        href = a.get("href")
+        if href and href.endswith(".pdf"):
+            return href
+    return None
 
-def extraer_cargos(pdf_path: str, comuna: str, tipo_tarifa: str):
+def descargar_pdf(url):
+    res = requests.get(url, verify=False)
+    ctype = res.headers.get("Content-Type","")
+    if res.status_code == 200 and "pdf" in ctype:
+        fname = "pliego.pdf"
+        with open(fname, "wb") as f:
+            f.write(res.content)
+        return fname
+    return None
+
+def extraer_cargos(pdf_path):
     data = []
-    with open(pdf_path, 'rb') as f:
+    with open(pdf_path, "rb") as f:
         reader = PyPDF2.PdfReader(f)
-        for page in reader.pages:
-            text = page.extract_text()
-            if text and comuna.lower() in text.lower() and tipo_tarifa.upper() in text.upper():
-                lineas = text.split('\n')
-                for i, linea in enumerate(lineas):
-                    if comuna.lower() in linea.lower() and tipo_tarifa.upper() in linea.upper():
-                        for j in range(i, min(i+20, len(lineas))):
-                            if any(x in lineas[j] for x in ["Cargo", "$", "%", "kWh"]):
-                                data.append({"Descripción": lineas[j]})
+        for p in reader.pages:
+            txt = p.extract_text() or ""
+            if comuna.lower() in txt.lower() and tipo_tarifa.upper() in txt.upper():
+                for line in txt.split("\n"):
+                    if any(x in line for x in ["Cargo", "$", "%", "kWh"]):
+                        data.append({"Detalle": line.strip()})
     return data
 
-if mes and anio and comuna and tipo_tarifa:
-    with st.spinner("Descargando pliego tarifario..."):
-        pdf_path = descargar_pdf(mes, anio)
-
-    if pdf_path:
-        st.success("Pliego descargado exitosamente")
-        with st.spinner("Buscando información en el documento..."):
-            resultados = extraer_cargos(pdf_path, comuna, tipo_tarifa)
-            if resultados:
-                df_resultados = pd.DataFrame(resultados)
-                st.subheader(f"Resultados para {comuna.title()} - Tarifa {tipo_tarifa.upper()}")
-                st.dataframe(df_resultados, use_container_width=True)
-            else:
-                st.warning("No se encontraron datos coincidentes con los criterios ingresados.")
-        os.remove(pdf_path)
+if st.button("Ejecutar Scraping y Descargar PDF"):
+    st.info("Buscando enlace hacia PDF...")
+    link = obtener_enlace_pliego()
+    if not link:
+        st.error("No se encontró pliego tarifario regulado en el sitio.")
     else:
-        st.error("No se pudo descargar el pliego tarifario. Verifica que el mes y año estén disponibles.")
-else:
-    st.info("Por favor, completa todos los campos para comenzar.")
+        st.write("✅ Enlace detectado:", link)
+        fname = descargar_pdf(link)
+        if not fname:
+            st.error("Falló descarga o archivo no es PDF.")
+        else:
+            st.success("📥 PDF descargado OK")
+            cargos = extraer_cargos(fname)
+            os.remove(fname)
+            if cargos:
+                st.table(pd.DataFrame(cargos))
+            else:
+                st.warning("No se encontraron cargos para los criterios ingresados.")
